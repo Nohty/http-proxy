@@ -35,6 +35,8 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		handlePatch(w, r)
 	case http.MethodDelete:
 		handleDelete(w, r)
+	case http.MethodHead:
+		handleHead(w, r)
 	default:
 		httpError(w, http.StatusMethodNotAllowed, "Method not allowed")
 	}
@@ -195,6 +197,32 @@ func handleDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(resp.StatusCode)
 
 	io.Copy(w, resp.Body)
+}
+
+func handleHead(w http.ResponseWriter, r *http.Request) {
+	url := r.URL.Query().Get("url")
+	if url == "" {
+		httpError(w, http.StatusBadRequest, "URL query parameter is required")
+		return
+	}
+
+	req, err := http.NewRequest(http.MethodHead, url, nil)
+	if err != nil {
+		httpError(w, http.StatusInternalServerError, "Failed to create new request: "+err.Error())
+		return
+	}
+	copyHeaders(req.Header, r.Header)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		httpError(w, http.StatusInternalServerError, "Failed to perform HEAD request: "+err.Error())
+		return
+	}
+	defer resp.Body.Close()
+
+	copyHeaders(w.Header(), resp.Header)
+	w.WriteHeader(resp.StatusCode)
 }
 
 func copyHeaders(dst, src http.Header) {
