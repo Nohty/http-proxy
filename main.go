@@ -7,7 +7,10 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 )
+
+var supportedMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
 
 func main() {
 	http.HandleFunc("/", handleRequest)
@@ -37,6 +40,8 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		handleDelete(w, r)
 	case http.MethodHead:
 		handleHead(w, r)
+	case http.MethodOptions:
+		handleOptions(w, r)
 	default:
 		httpError(w, http.StatusMethodNotAllowed, "Method not allowed")
 	}
@@ -225,6 +230,46 @@ func handleHead(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(resp.StatusCode)
 }
 
+func handleOptions(w http.ResponseWriter, r *http.Request) {
+	url := r.URL.Query().Get("url")
+	if url == "" {
+		httpError(w, http.StatusBadRequest, "URL query parameter is required")
+		return
+	}
+
+	req, err := http.NewRequest(http.MethodOptions, url, nil)
+	if err != nil {
+		httpError(w, http.StatusInternalServerError, "Failed to create new request: "+err.Error())
+		return
+	}
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		httpError(w, http.StatusInternalServerError, "Failed to perform OPTIONS request: "+err.Error())
+		return
+	}
+	defer resp.Body.Close()
+
+	targetSupportedMethods := parseAllowHeader(resp.Header.Get("Allow"))
+	allowedMethods := intersectMethods(targetSupportedMethods, supportedMethods)
+
+	allowedMethodsStr := strings.Join(allowedMethods, ", ")
+	w.Header().Set("Allow", allowedMethodsStr)
+	w.Header().Set("Access-Control-Allow-Methods", allowedMethodsStr)
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func httpError(w http.ResponseWriter, statusCode int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	fmt.Fprintf(w, "{\"error\": \"%s\"}\n", message)
+	log.Printf("Error %d: %s", statusCode, message)
+}
+
 func copyHeaders(dst, src http.Header) {
 	for k, vv := range src {
 		for _, v := range vv {
@@ -233,9 +278,23 @@ func copyHeaders(dst, src http.Header) {
 	}
 }
 
-func httpError(w http.ResponseWriter, statusCode int, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(statusCode)
-	fmt.Fprintf(w, "{\"error\": \"%s\"}\n", message)
-	log.Printf("Error %d: %s", statusCode, message)
+func parseAllowHeader(header string) []string {
+	return strings.Split(header, ",")
+}
+
+func intersectMethods(a, b []string) []string {
+	m := make(map[string]bool)
+	var intersection []string
+
+	for _, item := range b {
+		m[item] = true
+	}
+
+	for _, item := range a {
+		if _, ok := m[item]; ok {
+			intersection = append(intersection, item)
+		}
+	}
+
+	return intersection
 }
