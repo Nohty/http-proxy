@@ -31,6 +31,8 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		handlePost(w, r)
 	case http.MethodPut:
 		handlePut(w, r)
+	case http.MethodPatch:
+		handlePatch(w, r)
 	default:
 		httpError(w, http.StatusMethodNotAllowed, "Method not allowed")
 	}
@@ -120,6 +122,41 @@ func handlePut(w http.ResponseWriter, r *http.Request) {
 	resp, err := client.Do(req)
 	if err != nil {
 		httpError(w, http.StatusInternalServerError, "Failed to perform PUT request: "+err.Error())
+		return
+	}
+	defer resp.Body.Close()
+
+	copyHeaders(w.Header(), resp.Header)
+	w.WriteHeader(resp.StatusCode)
+
+	io.Copy(w, resp.Body)
+}
+
+func handlePatch(w http.ResponseWriter, r *http.Request) {
+	url := r.URL.Query().Get("url")
+	if url == "" {
+		httpError(w, http.StatusBadRequest, "URL query parameter is required")
+		return
+	}
+
+	clientRequestBody, err := io.ReadAll(r.Body)
+	if err != nil {
+		httpError(w, http.StatusBadRequest, "Failed to read request body: "+err.Error())
+		return
+	}
+	defer r.Body.Close()
+
+	req, err := http.NewRequest(http.MethodPatch, url, bytes.NewReader(clientRequestBody))
+	if err != nil {
+		httpError(w, http.StatusInternalServerError, "Failed to create new request: "+err.Error())
+		return
+	}
+	copyHeaders(req.Header, r.Header)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		httpError(w, http.StatusInternalServerError, "Failed to perform PATCH request: "+err.Error())
 		return
 	}
 	defer resp.Body.Close()
